@@ -1,0 +1,10 @@
+# Audio Recording
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# MP3 Encoding
+lameenc>=1.4.2
+
+# GUI (comes with Python standard library)
+# tkinter - included in Python installation
