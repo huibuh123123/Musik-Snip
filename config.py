@@ -3,7 +3,7 @@ Configuration constants for the Audio Recorder application.
 """
 
 # Audio Settings
-SAMPLE_RATE = 44100  # CD quality (44.1 kHz)
+SAMPLE_RATE = 48000  # 48 kHz (standard for many devices)
 CHANNELS = 2  # Stereo
 AUDIO_DTYPE = 'float32'
 BUFFER_SIZE = 1024
@@ -27,8 +27,8 @@ TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 # GUI Settings
 WINDOW_TITLE = "🎙️ System Audio Recorder"
 WINDOW_WIDTH = 600
-WINDOW_HEIGHT = 550
-WINDOW_RESIZABLE = False
+WINDOW_HEIGHT = 700
+WINDOW_RESIZABLE = True
 GUI_THEME = "darkly"  # ttkbootstrap theme: darkly, flatly, cosmo, solar, etc.
 
 # UI Colors

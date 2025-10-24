@@ -36,7 +36,7 @@ def check_dependencies():
         True if all dependencies are available, False otherwise
     """
     required_modules = {
-        'sounddevice': 'sounddevice',
+        'pyaudiowpatch': 'pyaudiowpatch',
         'soundfile': 'soundfile',
         'numpy': 'numpy',
         'lameenc': 'lameenc',

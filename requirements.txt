@@ -1,5 +1,5 @@
 # Audio Recording
-sounddevice>=0.4.6
+pyaudiowpatch>=0.2.12.7  # For Windows WASAPI Loopback
 soundfile>=0.12.1
 numpy>=1.24.0
 

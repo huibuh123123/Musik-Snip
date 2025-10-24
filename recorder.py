@@ -1,15 +1,23 @@
 """
-Audio recording functionality using sounddevice.
+Audio recording functionality using PyAudioWPatch for WASAPI Loopback.
 """
 
 import os
 import logging
 import datetime
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 from typing import Optional, Callable, List
 from threading import Event
+import time
+
+try:
+    import pyaudiowpatch as pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    import pyaudio
+    PYAUDIO_AVAILABLE = False
+    logging.warning("PyAudioWPatch not available, loopback recording may not work")
 
 from config import (
     SAMPLE_RATE, CHANNELS, AUDIO_DTYPE, BUFFER_SIZE,
@@ -27,58 +35,100 @@ class AudioRecorderError(Exception):
 
 class AudioRecorder:
     """
-    Handles audio recording from system audio device.
+    Handles audio recording from system audio device using WASAPI Loopback.
 
     Attributes:
         sample_rate: Audio sample rate in Hz
         channels: Number of audio channels (1=mono, 2=stereo)
-        device: Audio input device ID or name
+        device: Audio device info dict or device index
     """
 
     def __init__(self, sample_rate: int = SAMPLE_RATE, channels: int = CHANNELS,
-                 device: Optional[int] = None):
+                 device: Optional[dict] = None):
         """
         Initialize the audio recorder.
 
         Args:
             sample_rate: Sample rate in Hz (default: from config)
             channels: Number of channels (default: from config)
-            device: Audio device ID (default: system default)
+            device: Device info dict with 'index', 'name', 'is_loopback', etc.
         """
         self.sample_rate = sample_rate
         self.channels = channels
         self.device = device
         self.is_recording = False
         self.is_paused = False
-        self.frames: List[np.ndarray] = []
+        self.frames: List[bytes] = []
         self.stop_event = Event()
         self.pause_event = Event()
+        self.pyaudio_instance = None
+        self.stream = None
+        self.current_level = 0.0
 
         logger.info(f"AudioRecorder initialized: rate={sample_rate}, channels={channels}, device={device}")
 
     @staticmethod
     def get_audio_devices() -> List[dict]:
         """
-        Get list of available audio input devices.
+        Get list of available audio devices including WASAPI loopback devices.
 
         Returns:
-            List of device info dictionaries
+            List of device info dictionaries with keys:
+            - id: device index
+            - name: device name
+            - channels: max channels
+            - sample_rate: default sample rate
+            - is_loopback: True if this is a loopback device
+            - is_default: True if this is the default loopback device
         """
+        devices = []
+
         try:
-            devices = sd.query_devices()
-            input_devices = []
+            p = pyaudio.PyAudio()
 
-            for i, device in enumerate(devices):
-                if device['max_input_channels'] > 0:
-                    input_devices.append({
-                        'id': i,
-                        'name': device['name'],
-                        'channels': device['max_input_channels'],
-                        'sample_rate': device['default_samplerate']
-                    })
+            # Get default loopback device
+            try:
+                if PYAUDIO_AVAILABLE:
+                    default_loopback = p.get_default_wasapi_loopback()
+                    default_loopback_index = default_loopback['index'] if default_loopback else None
+                else:
+                    default_loopback_index = None
+            except (OSError, AttributeError):
+                default_loopback_index = None
+                logger.warning("Could not get default WASAPI loopback device")
 
-            logger.info(f"Found {len(input_devices)} input devices")
-            return input_devices
+            # Enumerate all devices
+            for i in range(p.get_device_count()):
+                try:
+                    device_info = p.get_device_info_by_index(i)
+
+                    # Check if this is a loopback device
+                    is_loopback = device_info.get('isLoopbackDevice', False)
+                    max_channels = device_info.get('maxInputChannels', 0)
+
+                    # Include loopback devices or regular input devices
+                    if is_loopback or max_channels > 0:
+                        devices.append({
+                            'id': i,
+                            'name': device_info['name'],
+                            'channels': max_channels,
+                            'sample_rate': device_info['defaultSampleRate'],
+                            'is_loopback': is_loopback,
+                            'is_default': (i == default_loopback_index),
+                            'hostapi': device_info.get('hostApi', -1)
+                        })
+
+                except Exception as e:
+                    logger.debug(f"Skipping device {i}: {e}")
+                    continue
+
+            p.terminate()
+
+            # Sort: loopback devices first, then default loopback, then by name
+            devices.sort(key=lambda d: (not d['is_loopback'], not d.get('is_default', False), d['name']))
+
+            logger.info(f"Found {len(devices)} audio devices ({sum(1 for d in devices if d['is_loopback'])} loopback)")
+            return devices
 
         except Exception as e:
             logger.error(f"Failed to query audio devices: {e}")
@@ -87,7 +137,7 @@ class AudioRecorder:
     def start_recording(self, duration: Optional[float] = None,
                        callback: Optional[Callable[[float], None]] = None) -> None:
         """
-        Start audio recording.
+        Start audio recording. This method BLOCKS until recording is finished.
 
         Args:
             duration: Recording duration in seconds (None = unlimited)
@@ -105,53 +155,132 @@ class AudioRecorder:
             self.is_paused = False
             self.frames = []
             self.stop_event.clear()
-            self.pause_event.clear()
+            self.current_level = 0.0
 
-            logger.info(f"Starting recording (duration={duration}s)")
+            # Get device info
+            device_index = None
+            device_channels = self.channels
+            device_sample_rate = self.sample_rate
 
-            def audio_callback(indata, frames_count, time_info, status):
-                """Callback for audio stream."""
-                if status:
-                    logger.warning(f"Audio callback status: {status}")
+            if self.device:
+                device_index = self.device.get('id')
+                device_channels = self.device.get('channels', self.channels)
+                device_sample_rate = int(self.device.get('sample_rate', self.sample_rate))
+                logger.info(f"Using device {device_index}: {self.device.get('name')}")
+            else:
+                # Use default loopback device
+                logger.info("Using default loopback device")
 
-                if self.stop_event.is_set():
-                    raise sd.CallbackStop
+            # Update recorder settings based on device
+            self.sample_rate = device_sample_rate
+            # Use stereo if device supports it, otherwise use device's max channels
+            if device_channels >= 2:
+                self.channels = 2
+            else:
+                self.channels = device_channels
 
-                if not self.is_paused:
-                    self.frames.append(indata.copy())
+            logger.info(f"Starting recording (duration={duration}s, rate={self.sample_rate}, channels={self.channels})")
 
-            # Start audio stream
-            with sd.InputStream(
-                samplerate=self.sample_rate,
+            # Initialize PyAudio
+            self.pyaudio_instance = pyaudio.PyAudio()
+
+            # Determine audio format
+            if AUDIO_DTYPE == 'float32':
+                audio_format = pyaudio.paFloat32
+            elif AUDIO_DTYPE == 'int16':
+                audio_format = pyaudio.paInt16
+            else:
+                audio_format = pyaudio.paFloat32
+
+            # Open stream
+            self.stream = self.pyaudio_instance.open(
+                format=audio_format,
                 channels=self.channels,
-                dtype=AUDIO_DTYPE,
-                callback=audio_callback,
-                device=self.device,
-                blocksize=BUFFER_SIZE
-            ):
-                import time
-                start_time = time.time()
+                rate=self.sample_rate,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=BUFFER_SIZE
+            )
 
+            logger.info("Audio stream opened successfully")
+
+            # Recording loop (BLOCKING)
+            start_time = time.time()
+
+            try:
                 while not self.stop_event.is_set():
+                    # Check duration limit
                     elapsed = time.time() - start_time
+                    if duration and elapsed >= duration:
+                        logger.info(f"Duration limit reached: {elapsed:.1f}s")
+                        break
 
                     # Call progress callback
                     if callback:
                         callback(elapsed)
 
-                    # Check duration limit
-                    if duration and elapsed >= duration:
-                        logger.info(f"Duration limit reached: {elapsed:.1f}s")
-                        break
+                    # Read audio data
+                    try:
+                        if not self.is_paused and self.stream.is_active():
+                            data = self.stream.read(BUFFER_SIZE, exception_on_overflow=False)
+                            self.frames.append(data)
 
-                    time.sleep(0.1)
+                            # Calculate audio level for visualization
+                            try:
+                                audio_array = np.frombuffer(data, dtype=np.float32 if AUDIO_DTYPE == 'float32' else np.int16)
+                                if len(audio_array) > 0:
+                                    if AUDIO_DTYPE == 'int16':
+                                        audio_array = audio_array.astype(np.float32) / 32768.0
+                                    # Calculate RMS and scale up for better visibility
+                                    rms = np.sqrt(np.mean(audio_array ** 2))
+                                    # Scale by 3 for better visibility (loopback audio can be quiet)
+                                    self.current_level = float(min(rms * 3.0, 1.0))
+                            except Exception as e:
+                                logger.debug(f"Level calculation error: {e}")
+                        elif self.is_paused:
+                            # When paused, still update but don't record
+                            time.sleep(0.05)
+                    except Exception as e:
+                        if not self.stop_event.is_set():
+                            logger.warning(f"Stream read error: {e}")
 
-            logger.info("Recording stopped")
+                    time.sleep(0.01)  # Small delay to prevent CPU spinning
+
+                logger.info("Recording stopped")
+
+            except Exception as e:
+                logger.error(f"Recording loop error: {e}")
+                raise AudioRecorderError(f"Recording failed: {e}")
+
+            finally:
+                # Cleanup stream
+                if self.stream:
+                    try:
+                        self.stream.stop_stream()
+                        self.stream.close()
+                    except Exception as e:
+                        logger.warning(f"Error closing stream: {e}")
+
+                if self.pyaudio_instance:
+                    try:
+                        self.pyaudio_instance.terminate()
+                    except Exception as e:
+                        logger.warning(f"Error terminating PyAudio: {e}")
 
         except Exception as e:
-            logger.error(f"Recording failed: {e}")
+            logger.error(f"Failed to start recording: {e}")
             self.is_recording = False
-            raise AudioRecorderError(f"Failed to record audio: {e}")
+            if self.stream:
+                try:
+                    self.stream.close()
+                except:
+                    pass
+            if self.pyaudio_instance:
+                try:
+                    self.pyaudio_instance.terminate()
+                except:
+                    pass
+            raise AudioRecorderError(f"Failed to start recording: {e}")
 
     def stop_recording(self) -> None:
         """Stop the current recording."""
@@ -194,11 +323,25 @@ class AudioRecorder:
             return None
 
         try:
-            audio_data = np.concatenate(self.frames, axis=0)
-            logger.info(f"Retrieved audio data: shape={audio_data.shape}")
+            # Convert bytes to numpy array
+            audio_bytes = b''.join(self.frames)
+
+            if AUDIO_DTYPE == 'float32':
+                audio_data = np.frombuffer(audio_bytes, dtype=np.float32)
+            elif AUDIO_DTYPE == 'int16':
+                audio_data = np.frombuffer(audio_bytes, dtype=np.int16)
+            else:
+                audio_data = np.frombuffer(audio_bytes, dtype=np.float32)
+
+            # Reshape to (samples, channels) if stereo
+            if self.channels > 1:
+                audio_data = audio_data.reshape(-1, self.channels)
+
+            logger.info(f"Retrieved audio data: shape={audio_data.shape}, dtype={audio_data.dtype}")
             return audio_data
+
         except Exception as e:
-            logger.error(f"Failed to concatenate audio frames: {e}")
+            logger.error(f"Failed to get audio data: {e}")
             return None
 
     def save_to_wav(self, filename: Optional[str] = None) -> str:
@@ -247,20 +390,10 @@ class AudioRecorder:
         Returns:
             Audio level as float (0.0 to 1.0)
         """
-        if not self.frames or len(self.frames) == 0:
-            return 0.0
-
-        try:
-            # Get last frame
-            last_frame = self.frames[-1]
-            # Calculate RMS
-            rms = np.sqrt(np.mean(last_frame ** 2))
-            return float(np.clip(rms, 0.0, 1.0))
-        except Exception as e:
-            logger.error(f"Failed to calculate audio level: {e}")
-            return 0.0
+        return float(np.clip(self.current_level, 0.0, 1.0))
 
     def clear_data(self) -> None:
         """Clear recorded audio data from memory."""
         self.frames.clear()
+        self.current_level = 0.0
         logger.info("Audio data cleared")

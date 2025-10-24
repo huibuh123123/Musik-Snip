@@ -40,6 +40,7 @@ class AudioRecorderGUI:
         self.root = root
         self.recorder = AudioRecorder()
         self.encoder: Optional[MP3Encoder] = None
+        self.available_devices = []  # List of available audio devices
 
         # State variables
         self.is_recording = False
@@ -48,6 +49,7 @@ class AudioRecorderGUI:
         self.elapsed_time = 0.0
         self.output_path = OUTPUT_FOLDER
         self.timer_end_time = None  # Calculated end time for timer
+        self.timer_stop_scheduled = None  # ID for scheduled timer stop
 
         # Setup window
         self.setup_window()
@@ -70,26 +72,26 @@ class AudioRecorderGUI:
         """Create all GUI widgets with modern design."""
 
         # Main container with padding
-        main_frame = ttk.Frame(self.root, padding=15)
+        main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=BOTH, expand=YES)
 
         # Title
         title_label = ttk.Label(
             main_frame,
             text="System Audio Recorder",
-            font=("Segoe UI", 18, "bold"),
+            font=("Segoe UI", 16, "bold"),
             bootstyle="inverse-dark"
         )
-        title_label.pack(pady=(0, 15))
+        title_label.pack(pady=(0, 10))
 
         # Device selection frame
         device_frame = ttk.Labelframe(
             main_frame,
             text="🎧 Audio-Gerät",
-            padding=10,
+            padding=8,
             bootstyle="primary"
         )
-        device_frame.pack(fill=X, pady=(0, 10))
+        device_frame.pack(fill=X, pady=(0, 8))
 
         self.device_var = ttk.StringVar()
         self.device_combo = ttk.Combobox(
@@ -105,14 +107,14 @@ class AudioRecorderGUI:
         settings_frame = ttk.Labelframe(
             main_frame,
             text="⚙️ Einstellungen",
-            padding=10,
+            padding=8,
             bootstyle="secondary"
         )
-        settings_frame.pack(fill=X, pady=(0, 10))
+        settings_frame.pack(fill=X, pady=(0, 8))
 
         # Timer settings with minutes AND seconds
         timer_frame = ttk.Frame(settings_frame)
-        timer_frame.pack(fill=X, pady=(0, 10))
+        timer_frame.pack(fill=X, pady=(0, 5))
 
         ttk.Label(
             timer_frame,
@@ -164,11 +166,11 @@ class AudioRecorderGUI:
             font=("Segoe UI", 9),
             bootstyle="info"
         )
-        self.timer_end_label.pack(fill=X, pady=(0, 10))
+        self.timer_end_label.pack(fill=X, pady=(0, 5))
 
         # Quality settings with bitrate display
         quality_frame = ttk.Frame(settings_frame)
-        quality_frame.pack(fill=X, pady=(0, 10))
+        quality_frame.pack(fill=X, pady=(0, 5))
 
         ttk.Label(
             quality_frame,
@@ -222,11 +224,11 @@ class AudioRecorderGUI:
 
         # Status display with modern card design
         status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill=X, pady=(0, 10))
+        status_frame.pack(fill=X, pady=(0, 5))
 
         # Status card
         status_card = ttk.Frame(status_frame, bootstyle="dark")
-        status_card.pack(fill=X, pady=5)
+        status_card.pack(fill=X, pady=3)
 
         self.status_label = ttk.Label(
             status_card,
@@ -239,7 +241,7 @@ class AudioRecorderGUI:
 
         # Time displays in a frame
         time_display_frame = ttk.Frame(main_frame)
-        time_display_frame.pack(fill=X, pady=(0, 10))
+        time_display_frame.pack(fill=X, pady=(0, 5))
 
         # Current runtime / countdown
         self.time_label = ttk.Label(
@@ -266,7 +268,7 @@ class AudioRecorderGUI:
             padding=5,
             bootstyle="info"
         )
-        level_frame.pack(fill=X, pady=(0, 10))
+        level_frame.pack(fill=X, pady=(0, 8))
 
         self.level_meter = ttk.Progressbar(
             level_frame,
@@ -278,44 +280,85 @@ class AudioRecorderGUI:
 
         # Control buttons with modern styling
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=10)
+        button_frame.pack(pady=8, fill=X)
+
+        # Create inner frame for centering buttons
+        button_inner = ttk.Frame(button_frame)
+        button_inner.pack(anchor=CENTER)
 
         self.start_button = ttk.Button(
-            button_frame,
+            button_inner,
             text="▶️ Start",
             command=self.start_recording,
             bootstyle="success",
-            width=12
+            width=15
         )
-        self.start_button.grid(row=0, column=0, padx=5)
+        self.start_button.pack(side=LEFT, padx=5)
 
         self.pause_button = ttk.Button(
-            button_frame,
+            button_inner,
             text="⏸️ Pause",
             command=self.toggle_pause,
             bootstyle="warning",
-            width=12,
+            width=15,
             state=DISABLED
         )
-        self.pause_button.grid(row=0, column=1, padx=5)
+        self.pause_button.pack(side=LEFT, padx=5)
 
         self.stop_button = ttk.Button(
-            button_frame,
+            button_inner,
             text="⏹️ Stop",
             command=self.stop_recording,
             bootstyle="danger",
-            width=12,
+            width=15,
             state=DISABLED
         )
-        self.stop_button.grid(row=0, column=2, padx=5)
+        self.stop_button.pack(side=LEFT, padx=5)
 
     def on_timer_toggle(self) -> None:
         """Called when timer checkbox is toggled."""
         if self.timer_enabled.get():
             self.update_timer_end_display()
+
+            # If recording is active, apply timer immediately
+            if self.is_recording:
+                try:
+                    minutes = int(self.timer_minutes.get())
+                    seconds = int(self.timer_seconds.get())
+                    total_seconds = minutes * 60 + seconds
+
+                    if total_seconds > 0:
+                        # Set new end time from now
+                        self.timer_end_time = datetime.datetime.now() + datetime.timedelta(seconds=total_seconds)
+                        logger.info(f"Timer activated during recording: {total_seconds}s from now")
+                        self.schedule_timer_stop(total_seconds)
+                except ValueError:
+                    logger.warning("Invalid timer input during recording")
         else:
             self.timer_end_label.config(text="")
             self.timer_end_time = None
+
+            # If recording is active and timer was disabled, cancel scheduled stop
+            if self.is_recording and self.timer_stop_scheduled:
+                self.root.after_cancel(self.timer_stop_scheduled)
+                self.timer_stop_scheduled = None
+                logger.info("Timer disabled during recording - cancelled scheduled stop")
+
+    def schedule_timer_stop(self, seconds: float) -> None:
+        """
+        Schedule automatic stop after specified seconds.
+
+        Args:
+            seconds: Seconds from now when to stop recording
+        """
+        # Cancel any previously scheduled stop
+        if self.timer_stop_scheduled:
+            self.root.after_cancel(self.timer_stop_scheduled)
+
+        # Schedule new stop
+        milliseconds = int(seconds * 1000)
+        self.timer_stop_scheduled = self.root.after(milliseconds, self.stop_recording)
+        logger.info(f"Scheduled recording stop in {seconds}s")
 
     def update_timer_end_display(self) -> None:
         """Update the display showing when timer will end."""
@@ -343,21 +386,33 @@ class AudioRecorderGUI:
     def load_audio_devices(self) -> None:
         """Load available audio devices into combo box."""
         try:
-            devices = AudioRecorder.get_audio_devices()
+            self.available_devices = AudioRecorder.get_audio_devices()
 
-            if not devices:
-                self.device_combo['values'] = ["Standard (System Default)"]
+            if not self.available_devices:
+                self.device_combo['values'] = ["Standard (System Loopback)"]
                 self.device_combo.current(0)
                 logger.warning("No audio devices found, using default")
                 return
 
-            device_names = [f"{d['name']} (ID: {d['id']})" for d in devices]
-            device_names.insert(0, "Standard (System Default)")
+            # Create display names with loopback indicator
+            device_names = []
+            default_index = 0
+
+            for i, d in enumerate(self.available_devices):
+                loopback_tag = " [Loopback]" if d.get('is_loopback') else " [Mikrofon]"
+                default_tag = " ⭐" if d.get('is_default') else ""
+                name = f"{d['name']}{loopback_tag}{default_tag}"
+                device_names.append(name)
+
+                # Set default loopback as default selection
+                if d.get('is_default'):
+                    default_index = i
 
             self.device_combo['values'] = device_names
-            self.device_combo.current(0)
+            self.device_combo.current(default_index)
 
-            logger.info(f"Loaded {len(devices)} audio devices")
+            loopback_count = sum(1 for d in self.available_devices if d.get('is_loopback'))
+            logger.info(f"Loaded {len(self.available_devices)} audio devices ({loopback_count} loopback)")
 
         except Exception as e:
             logger.error(f"Failed to load audio devices: {e}")
@@ -375,22 +430,26 @@ class AudioRecorderGUI:
             self.folder_label.config(text=folder)
             logger.info(f"Output folder changed to: {folder}")
 
-    def get_selected_device(self) -> Optional[int]:
+    def get_selected_device(self) -> Optional[dict]:
         """
-        Get the selected audio device ID.
+        Get the selected audio device info.
 
         Returns:
-            Device ID or None for default device
+            Device info dict or None for default device
         """
-        selection = self.device_var.get()
-        if "Standard" in selection:
-            return None
-
         try:
-            device_id = int(selection.split("ID: ")[1].rstrip(")"))
-            return device_id
-        except (IndexError, ValueError):
-            logger.warning("Could not parse device ID, using default")
+            selected_index = self.device_combo.current()
+
+            if selected_index < 0 or selected_index >= len(self.available_devices):
+                logger.warning("Invalid device selection, using default")
+                return None
+
+            device = self.available_devices[selected_index]
+            logger.info(f"Selected device: {device['name']} (loopback={device.get('is_loopback')})")
+            return device
+
+        except (IndexError, AttributeError) as e:
+            logger.warning(f"Could not get selected device: {e}, using default")
             return None
 
     def get_selected_bitrate(self) -> int:
@@ -416,10 +475,10 @@ class AudioRecorderGUI:
 
         try:
             # Get selected device
-            device_id = self.get_selected_device()
+            device_info = self.get_selected_device()
 
             # Create new recorder with selected device
-            self.recorder = AudioRecorder(device=device_id)
+            self.recorder = AudioRecorder(device=device_info)
 
             # Get timer duration
             duration = None
@@ -458,9 +517,10 @@ class AudioRecorderGUI:
             self.pause_button.config(state=NORMAL)
             self.stop_button.config(state=NORMAL)
             self.device_combo.config(state=DISABLED)
-            self.timer_minutes.config(state=DISABLED)
-            self.timer_seconds.config(state=DISABLED)
-            self.timer_button.config(state=DISABLED)
+            # Keep timer controls enabled during recording for dynamic adjustment
+            # self.timer_minutes.config(state=DISABLED)
+            # self.timer_seconds.config(state=DISABLED)
+            # self.timer_button.config(state=DISABLED)
 
             logger.info(f"Starting recording (duration={duration})")
 
@@ -476,7 +536,8 @@ class AudioRecorderGUI:
                         self.root.after(0, self.stop_recording)
                 except AudioRecorderError as e:
                     logger.error(f"Recording error: {e}")
-                    self.root.after(0, lambda: self.on_recording_error(str(e)))
+                    error_msg = str(e)
+                    self.root.after(0, lambda msg=error_msg: self.on_recording_error(msg))
 
             Thread(target=record_thread, daemon=True).start()
 
@@ -545,11 +606,13 @@ class AudioRecorderGUI:
                     self.encoder.convert_wav_to_mp3(wav_file, mp3_file, delete_wav=True)
 
                     # Success
-                    self.root.after(0, lambda: self.on_save_success(mp3_file))
+                    saved_file = mp3_file
+                    self.root.after(0, lambda file=saved_file: self.on_save_success(file))
 
                 except (AudioRecorderError, MP3EncoderError) as e:
                     logger.error(f"Save error: {e}")
-                    self.root.after(0, lambda: self.on_save_error(str(e)))
+                    error_msg = str(e)
+                    self.root.after(0, lambda msg=error_msg: self.on_save_error(msg))
                 finally:
                     # Clean up WAV file if it still exists
                     if os.path.exists(wav_file):
@@ -672,6 +735,11 @@ class AudioRecorderGUI:
         self.is_recording = False
         self.is_paused = False
         self.timer_end_time = None
+
+        # Cancel any scheduled timer stop
+        if self.timer_stop_scheduled:
+            self.root.after_cancel(self.timer_stop_scheduled)
+            self.timer_stop_scheduled = None
 
         self.status_label.config(text="⚫ Bereit", bootstyle="dark")
         self.start_button.config(state=NORMAL)
