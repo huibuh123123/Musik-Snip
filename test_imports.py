@@ -40,6 +40,15 @@ except Exception as e:
     print(f"[FAIL] recorder.py import failed: {e}")
     sys.exit(1)
 
+# Test ttkbootstrap
+try:
+    import ttkbootstrap as ttk
+    print("[OK] ttkbootstrap imported successfully")
+except Exception as e:
+    print(f"[FAIL] ttkbootstrap import failed: {e}")
+    print("      Install with: pip install ttkbootstrap")
+    sys.exit(1)
+
 # Test GUI (without starting Tk mainloop)
 try:
     from gui import AudioRecorderGUI

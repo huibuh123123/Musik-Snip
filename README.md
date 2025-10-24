@@ -4,12 +4,15 @@ Eine Python-basierte GUI-Anwendung zum Aufnehmen von System-Audio mit Timer-Funk
 
 ## Features
 
+- **Modernes GUI-Design**: Basiert auf ttkbootstrap mit professionellem "darkly" Theme
 - **System-Audio-Aufnahme**: Nimm Audioausgaben deines Systems auf (z.B. Musik, Streams, etc.)
-- **Timer-Funktion**: Automatisches Stoppen nach eingestellter Zeit
+- **Präziser Timer**: Stelle Timer in Minuten UND Sekunden ein
+- **Timer-Countdown**: Sieh in Echtzeit, wie viel Zeit noch verbleibt
+- **Timer-Endzeit**: Zeigt die Uhrzeit an, wann die Aufnahme endet
 - **Pause/Resume**: Aufnahmen können pausiert und fortgesetzt werden
 - **Audio-Device-Auswahl**: Wähle das gewünschte Aufnahmegerät aus
-- **MP3-Konvertierung**: Automatische Konvertierung zu MP3 mit wählbarer Qualität
-- **Audio-Pegel-Anzeige**: Echtzeit-Visualisierung des Aufnahmepegels
+- **MP3-Konvertierung**: Automatische Konvertierung zu MP3 mit wählbarer Qualität (128-320 kbps mit Bitrate-Anzeige)
+- **Audio-Pegel-Anzeige**: Echtzeit-Visualisierung des Aufnahmepegels mit Progressbar
 - **Speicherort-Auswahl**: Wähle, wo deine Aufnahmen gespeichert werden sollen
 - **Error Handling**: Robuste Fehlerbehandlung mit aussagekräftigen Meldungen
 - **Logging**: Detailliertes Logging für Debugging
@@ -40,6 +43,7 @@ pip install -r requirements.txt
 - `soundfile` - WAV-Datei-Handling
 - `numpy` - Audio-Datenverarbeitung
 - `lameenc` - MP3-Encoding
+- `ttkbootstrap` - Modernes GUI-Framework
 
 ### 3. Anwendung starten
 
@@ -56,15 +60,17 @@ python main.py
    - Andere Geräte werden mit Name und ID angezeigt
 
 2. **Einstellungen konfigurieren**:
-   - **Timer**: Gib die gewünschte Aufnahmedauer in Minuten ein
-   - **Timer aktivieren**: Checkbox aktivieren, damit Timer verwendet wird
-   - **MP3-Qualität**: Wähle zwischen Low (128 kbps), Medium (192 kbps), High (256 kbps), Very High (320 kbps)
+   - **Timer**: Stelle Minuten UND Sekunden genau ein
+   - **Timer aktivieren**: Toggle-Button aktivieren, damit Timer verwendet wird
+   - **Timer-Endzeit**: Nach Aktivierung siehst du die Uhrzeit, wann die Aufnahme endet (z.B. "Timer endet um: 14:35:30")
+   - **MP3-Qualität**: Wähle zwischen Low (128 kbps), Medium (192 kbps), High (256 kbps), Very High (320 kbps) - Bitrate wird direkt angezeigt
    - **Speicherort**: Klicke auf "Ändern" um einen anderen Ordner zu wählen
 
 3. **Aufnahme starten**: Klicke auf "Start"
-   - Der Status wechselt zu "Nehme auf..."
-   - Die Laufzeit wird angezeigt
-   - Der Audio-Pegel wird in Echtzeit visualisiert
+   - Der Status wechselt zu "🔴 Nehme auf..."
+   - Die Laufzeit wird angezeigt (z.B. "Laufzeit: 02:35")
+   - Bei aktivem Timer siehst du einen Countdown (z.B. "⏱️ Verbleibend: 02:25")
+   - Der Audio-Pegel wird in Echtzeit mit einer Progressbar visualisiert
 
 4. **Aufnahme pausieren** (optional): Klicke auf "Pause"
    - Die Aufnahme wird pausiert
@@ -111,8 +117,9 @@ Die Datei `config.py` enthält alle Konfigurationsparameter:
 - `MP3_QUALITY`: 2 (LAME-Qualität, 0=best, 9=worst)
 
 ### GUI-Einstellungen
-- Fenstergröße: 500x450 Pixel
-- Farben für verschiedene Status
+- Theme: darkly (ttkbootstrap)
+- Fenstergröße: 600x550 Pixel
+- Modernes Design mit Bootstrap-Farben
 - Timer-Intervalle
 
 ## Troubleshooting
@@ -170,7 +177,18 @@ Bei Problemen oder Fragen:
 
 ## Changelog
 
-### Version 2.0 (Aktuell)
+### Version 2.5 (Aktuell) - Modern UI Update
+- **NEU**: Modernes GUI-Design mit ttkbootstrap (darkly Theme)
+- **NEU**: Timer mit Minuten UND Sekunden Eingabe
+- **NEU**: Live-Countdown während Aufnahme (zeigt verbleibende Zeit)
+- **NEU**: Timer-Endzeit-Anzeige (zeigt Uhrzeit wann Timer endet)
+- **NEU**: MP3-Qualität mit Bitrate-Anzeige (z.B. "Medium (192 kbps)")
+- **Verbessert**: Audio-Pegel mit moderner Progressbar
+- **Verbessert**: Status-Anzeige mit Emojis und Farben
+- **Verbessert**: Toggle-Button für Timer-Aktivierung
+- **Verbessert**: Responsive UI mit besseren Abständen
+
+### Version 2.0
 - Komplette Refaktorierung in modulare Struktur
 - Hinzugefügt: Audio-Device-Auswahl
 - Hinzugefügt: Pause/Resume-Funktion

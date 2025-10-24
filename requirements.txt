@@ -6,5 +6,6 @@ numpy>=1.24.0
 # MP3 Encoding
 lameenc>=1.4.2
 
-# GUI (comes with Python standard library)
+# GUI
 # tkinter - included in Python installation
+ttkbootstrap>=1.10.1

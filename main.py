@@ -8,10 +8,12 @@ License: MIT
 
 import sys
 import logging
-import tkinter as tk
 from tkinter import messagebox
 
+import ttkbootstrap as ttk
+
 from gui import AudioRecorderGUI
+from config import GUI_THEME
 
 
 def setup_logging():
@@ -37,7 +39,8 @@ def check_dependencies():
         'sounddevice': 'sounddevice',
         'soundfile': 'soundfile',
         'numpy': 'numpy',
-        'lameenc': 'lameenc'
+        'lameenc': 'lameenc',
+        'ttkbootstrap': 'ttkbootstrap'
     }
 
     missing = []
@@ -75,8 +78,8 @@ def main():
         sys.exit(1)
 
     try:
-        # Create main window
-        root = tk.Tk()
+        # Create main window with modern theme
+        root = ttk.Window(themename=GUI_THEME)
 
         # Create GUI
         app = AudioRecorderGUI(root)

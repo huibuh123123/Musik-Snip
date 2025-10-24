@@ -26,9 +26,10 @@ TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
 # GUI Settings
 WINDOW_TITLE = "🎙️ System Audio Recorder"
-WINDOW_WIDTH = 500
-WINDOW_HEIGHT = 450
+WINDOW_WIDTH = 600
+WINDOW_HEIGHT = 550
 WINDOW_RESIZABLE = False
+GUI_THEME = "darkly"  # ttkbootstrap theme: darkly, flatly, cosmo, solar, etc.
 
 # UI Colors
 COLOR_START_BUTTON = "#4CAF50"
